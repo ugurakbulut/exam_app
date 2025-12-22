@@ -227,7 +227,7 @@ with col2:
 
 # --- TABLOLAR (EXPANDER İLE GİZLENEBİLİR) ---
 with st.expander("🏛️ Bölüm Dersleri (MetE) - Düzenlemek için Tıkla", expanded=True):
-    st.info("💡 **Ders Yükü:** Asistanlar yarışa bu puanla başlar.")
+    st.info("💡 **Ders Yükü:** Asistanlar döneme bu puanla başlar.")
     edited_df_dept = st.data_editor(
         current_df_dept,
         column_config={
