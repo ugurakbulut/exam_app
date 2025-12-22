@@ -172,7 +172,7 @@ with st.sidebar.expander("👥 Asistan Listesi", expanded=False):
 assistant_options = ["Yok"] + st.session_state.assistants_db["name"].tolist()
 
 st.sidebar.markdown("---")
-st.sidebar.caption("🛠 Developed by **Uğur Akbulut**")
+st.sidebar.caption("🛠 Developed by **METE Exam Coord. and IT**")
 
 # --- 6. ANA EKRAN ---
 col_header1, col_header2 = st.columns([3, 1])
