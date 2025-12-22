@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-
 # --- 0. SAYFA AYARLARI ---
 st.set_page_config(
     page_title="ODTÜ MetE Sınav Koordinasyon",
@@ -9,6 +8,41 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- RENK VE TEMA AYARLARI (CSS ENJEKSİYONU) ---
+st.markdown("""
+<style>
+    /* Ana Butonlar (ODTÜ Kırmızısı) */
+    div.stButton > button:first-child {
+        background-color: #E31937 !important;
+        color: white !important;
+        border-radius: 8px;
+        border: none;
+        font-weight: bold;
+    }
+    /* Butonun üzerine gelince (Hover) */
+    div.stButton > button:first-child:hover {
+        background-color: #B61229 !important; /* Daha koyu kırmızı */
+        color: white !important;
+    }
+    /* Expander (Açılır Kutu) Başlıkları */
+    .streamlit-expanderHeader {
+        font-weight: bold;
+        color: #E31937 !important;
+    }
+    /* Sidebar (Sol Menü) Arkaplanı - Opsiyonel */
+    [data-testid="stSidebar"] {
+        background-color: #F8F9FA;
+    }
+    /* Metrik Kutuları (Dashboard Rakamları) */
+    [data-testid="stMetricValue"] {
+        color: #E31937 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+
 
 # --- 1. SABİT VERİLER ---
 COMMON_SERVICE_COURSES = ["MATH 119", "MATH 120", "MATH 219", "ENG 101", "ENG 102", "TUR 101", "TUR 102", "CENG 240", "ES 361", "ES 223"]
