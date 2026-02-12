@@ -104,7 +104,7 @@ def calculate_initial_loads(assistants_pool, course_loads_df):
         if course_load > 0:
             # Bu derse atanmış asistanları bul
             assigned_names = []
-            for col in ["Asistan 1", "Asistan 2", "Asistan 3"]:
+            for col in ["Asistan 1", "Asistan 2", "Asistan 3", "Asistan 4", "Asistan 5", "Asistan 6"]:
                 if col in row and row[col] and row[col] != "Yok":
                     assigned_names.append(row[col])
             
@@ -193,7 +193,10 @@ if 'course_load_data' not in st.session_state:
             "Toplam (Saat)": 0, # Varsayılan
             "Asistan 1": "Yok",
             "Asistan 2": "Yok",
-            "Asistan 3": "Yok"
+            "Asistan 3": "Yok",
+            "Asistan 4": "Yok",
+            "Asistan 5": "Yok",
+            "Asistan 6": "Yok"
         })
     st.session_state.course_load_data = pd.DataFrame(load_data)
 
@@ -234,7 +237,7 @@ if menu_selection == "Ders Yükleri":
          if lottie_exam: st_lottie(lottie_exam, height=80, key="load_anim")
 
     # Veri setini hazırlama (Eksik sütun kontrolü)
-    for col in ["Asistan 1", "Asistan 2", "Asistan 3"]:
+    for col in ["Asistan 1", "Asistan 2", "Asistan 3", "Asistan 4", "Asistan 5", "Asistan 6"]:
         if col not in st.session_state.course_load_data.columns:
             st.session_state.course_load_data[col] = "Yok"
     if "Toplam (Saat)" not in st.session_state.course_load_data.columns:
@@ -267,6 +270,9 @@ if menu_selection == "Ders Yükleri":
             "Asistan 1": st.column_config.SelectboxColumn("Asistan 1", options=assistant_options, width="medium"),
             "Asistan 2": st.column_config.SelectboxColumn("Asistan 2", options=assistant_options, width="medium"),
             "Asistan 3": st.column_config.SelectboxColumn("Asistan 3", options=assistant_options, width="medium"),
+            "Asistan 4": st.column_config.SelectboxColumn("Asistan 4", options=assistant_options, width="medium"),
+            "Asistan 5": st.column_config.SelectboxColumn("Asistan 5", options=assistant_options, width="medium"),
+            "Asistan 6": st.column_config.SelectboxColumn("Asistan 6", options=assistant_options, width="medium"),
         },
         hide_index=True,
         use_container_width=True,
@@ -397,7 +403,7 @@ else:
                     for _, row in st.session_state.course_load_data.iterrows():
                         c_code = row["Ders Kodu"]
                         assistants = []
-                        for col in ["Asistan 1", "Asistan 2", "Asistan 3"]:
+                        for col in ["Asistan 1", "Asistan 2", "Asistan 3", "Asistan 4", "Asistan 5", "Asistan 6"]:
                             if col in row and row[col] and row[col] != "Yok":
                                 assistants.append(row[col])
                         course_map[c_code] = assistants
