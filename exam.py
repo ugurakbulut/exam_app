@@ -79,46 +79,42 @@ def calculate_exam_points(exam_datetime, duration_minutes):
         return round(points, 2)
     except: return 0.0
 
-def calculate_initial_loads(assistants_pool, active_dept_df, course_loads_df):
+def calculate_initial_loads(assistants_pool, course_loads_df):
     """
-    Ders yüklerini artık 'course_loads_df' tablosundan çeker ve
-    active_dept_df tablosunda ismi geçen asistanlara ekler.
+    Ders yüklerini 'course_loads_df' tablosundan çeker.
+    Dersin toplam yükünü, o derse atanmış HER asistana TAM OLARAK ekler (Bölme yok).
     """
     # Önce tüm asistanların yüklerini sıfırla
     for a in assistants_pool:
         a['load'] = 0.0
         a['course_duties'] = []
     
-    if active_dept_df.empty: return assistants_pool
+    if course_loads_df is None or course_loads_df.empty:
+        return assistants_pool
     
-    grouped = active_dept_df.groupby("Ders Kodu")
-    
-    for course_code, group in grouped:
-        # Yeni tablodan bu dersin toplam yükünü bul
-        load_row = course_loads_df[course_loads_df["Ders Kodu"] == course_code]
-        if not load_row.empty:
-             # Rec + Obj + Quiz + Odev toplami
-            course_load = (
-                load_row.iloc[0]["Recitation"] + 
-                load_row.iloc[0]["Objection"] + 
-                load_row.iloc[0]["Quiz"] + 
-                load_row.iloc[0]["Ödevler"]
-            )
-        else:
-            course_load = 0
+    # Ders Yükleri tablosunu satır satır gez
+    for index, row in course_loads_df.iterrows():
+        try:
+            course_load = float(row.get("Toplam (Saat)", 0))
+        except:
+            course_load = 0.0
+            
+        course_code = row.get("Ders Kodu", "Bilinmeyen")
 
         if course_load > 0:
-            assistants_set = set()
-            for _, row in group.iterrows():
-                names = [row["Asistan 1"], row["Asistan 2"], row["Asistan 3"]]
-                for name in names:
-                    if name and name != "Yok": assistants_set.add(name)
+            # Bu derse atanmış asistanları bul
+            assigned_names = []
+            for col in ["Asistan 1", "Asistan 2", "Asistan 3"]:
+                if col in row and row[col] and row[col] != "Yok":
+                    assigned_names.append(row[col])
             
-            for name in assistants_set:
+            # Her bir atanan asistana yükü ekle (BÖLMEDEN)
+            for name in assigned_names:
                 match = next((a for a in assistants_pool if a['name'] == name), None)
                 if match:
                     match['load'] += course_load
                     match['course_duties'].append(f"{course_code} ({int(course_load)}p)")
+    
     return assistants_pool
 
 def run_allocation(assistants_pool, exams):
@@ -131,24 +127,31 @@ def run_allocation(assistants_pool, exams):
             duration = int(exam['duration'])
             exam_points = calculate_exam_points(exam_dt, duration)
             
-            manual_selections = [exam.get('assist_1'), exam.get('assist_2'), exam.get('assist_3')]
-            valid_manual_names = [name for name in manual_selections if name and name != "Yok" and name is not None]
-            if len(valid_manual_names) > needed: needed = len(valid_manual_names)
-
-            for name in valid_manual_names:
-                if any(name in s for s in assigned): continue
+            # 1. ADIM: Bu dersin önceden atanmış asistanlarını (Ders Yükleri sayfasından) al
+            # Bunlar öncelikli olarak sınavda görev alır.
+            pre_assigned = exam.get('pre_assigned_assistants', [])
+            
+            # Ders asistanlarını ata
+            for name in pre_assigned:
+                if len(assigned) >= needed: break # Kontenjan dolduysa dur (İsteğe göre bu satır kaldırılıp hepsi eklenebilir)
+                
                 match = next((a for a in assistants_pool if name == a['name']), None)
                 if match:
                     assigned.append(f"{match['name']} (Ders Asistanı)")
-                    match['load'] += exam_points 
-                else: assigned.append(f"{name} (Manuel)")
+                    match['load'] += exam_points
+                else:
+                    assigned.append(f"{name} (Manuel/Dış)")
 
+            # 2. ADIM: Eğer kontenjan dolmadıysa havuzdan tamamla
             if len(assigned) < needed:
                 remaining_slots = needed - len(assigned)
+                # Yükü en az olandan sırala
                 assistants_pool.sort(key=lambda x: x['load'])
                 filled = 0
                 for assistant in assistants_pool:
                     if filled >= remaining_slots: break
+                    
+                    # Zaten görevliyse atla
                     is_already_assigned = any(assistant['name'] in s for s in assigned)
                     if not is_already_assigned:
                         assistant['load'] += exam_points
@@ -174,14 +177,11 @@ if 'assistants_db' not in st.session_state:
 if 'semester_data_dept' not in st.session_state: st.session_state.semester_data_dept = {}
 if 'semester_data_service' not in st.session_state: st.session_state.semester_data_service = {}
 
-# Yeni: Ders Yükleri State'i
+# Ders Yükleri State'i
 if 'course_load_data' not in st.session_state:
-    # Tüm bölüm derslerini birleştir (Tekil liste)
     all_dept_courses = sorted(list(set(TERM1_DEPT + TERM2_DEPT)))
-    # En sona idari görevleri ekle
     all_items = all_dept_courses + EXTRA_DUTIES
     
-    # Boş veri seti oluştur
     load_data = []
     for item in all_items:
         load_data.append({
@@ -189,7 +189,11 @@ if 'course_load_data' not in st.session_state:
             "Recitation": 0,
             "Objection": 0,
             "Quiz": 0,
-            "Ödevler": 0
+            "Ödevler": 0,
+            "Toplam (Saat)": 0, # Varsayılan
+            "Asistan 1": "Yok",
+            "Asistan 2": "Yok",
+            "Asistan 3": "Yok"
         })
     st.session_state.course_load_data = pd.DataFrame(load_data)
 
@@ -198,7 +202,6 @@ st.sidebar.image("https://upload.wikimedia.org/wikipedia/tr/8/80/Ortado%C4%9Fu_T
 st.sidebar.title("Sınav Koordinasyon")
 st.sidebar.info("ODTÜ Metalurji ve Malzeme Müh.")
 
-# MENÜ GÜNCELLEMESİ
 menu_selection = st.sidebar.radio(
     "📌 Seçim Yapınız:", 
     ["Güz (1. Dönem)", "Bahar (2. Dönem)", "Ders Yükleri"]
@@ -226,28 +229,44 @@ if menu_selection == "Ders Yükleri":
     col1, col2 = st.columns([3, 1])
     with col1:
         st.title("Ders ve İdari Görev Yükleri")
-        st.markdown("*Burada girilen değerler, sınav planlamasında asistanın dönemlik başlangıç yükü olarak hesaba katılır.*")
+        st.markdown("*Ders asistanlarını buradan atayın. 'Toplam' sütununu manuel değiştirebilirsiniz.*")
     with col2:
          if lottie_exam: st_lottie(lottie_exam, height=80, key="load_anim")
 
-    # Hesaplamalı tablo gösterimi (Toplam sütunu ekleyerek göster)
+    # Veri setini hazırlama (Eksik sütun kontrolü)
+    for col in ["Asistan 1", "Asistan 2", "Asistan 3"]:
+        if col not in st.session_state.course_load_data.columns:
+            st.session_state.course_load_data[col] = "Yok"
+    if "Toplam (Saat)" not in st.session_state.course_load_data.columns:
+        st.session_state.course_load_data["Toplam (Saat)"] = 0
+
     display_df = st.session_state.course_load_data.copy()
-    display_df["Toplam (Saat)"] = (
-        display_df["Recitation"] + 
-        display_df["Objection"] + 
-        display_df["Quiz"] + 
-        display_df["Ödevler"]
-    )
+    
+    # Otomatik Toplam Hesaplama (Kullanıcıya kolaylık olsun diye, ama manuel değiştirirse ezmeyeceğiz)
+    # Sadece 0 ise hesapla, değilse kullanıcının girdiği kalsın mantığı biraz karmaşık olur,
+    # basitçe: her zaman formül toplamını bir değişkene alıp, kullanıcı değiştirmiş mi kontrolü st.data_editor halleder.
+    # Ancak burada basitlik adına: İlk açılışta hesapla, sonra editörden geleni al.
+    
+    # Kullanıcıya yardımcı olmak için: Eğer Toplam 0 ise, diğerlerinin toplamını öner.
+    display_df["_AutoSum"] = display_df["Recitation"] + display_df["Objection"] + display_df["Quiz"] + display_df["Ödevler"]
+    # Eğer Toplam (Saat) 0 ise _AutoSum'ı oraya yaz (Başlangıç değeri olarak)
+    display_df.loc[display_df["Toplam (Saat)"] == 0, "Toplam (Saat)"] = display_df["_AutoSum"]
+    display_df.drop(columns=["_AutoSum"], inplace=True)
 
     edited_loads = st.data_editor(
         display_df,
         column_config={
             "Ders Kodu": st.column_config.TextColumn("Ders / Görev", disabled=True),
-            "Recitation": st.column_config.NumberColumn("Recitation (Saat)", min_value=0, step=1),
-            "Objection": st.column_config.NumberColumn("Objection (Saat)", min_value=0, step=1),
-            "Quiz": st.column_config.NumberColumn("Quiz Hazırlama/Okuma", min_value=0, step=1),
-            "Ödevler": st.column_config.NumberColumn("Ödevler (Saat)", min_value=0, step=1),
-            "Toplam (Saat)": st.column_config.NumberColumn("Top. Tahmini Yük", disabled=True),
+            "Recitation": st.column_config.NumberColumn("Recitation", min_value=0, step=1),
+            "Objection": st.column_config.NumberColumn("Objection", min_value=0, step=1),
+            "Quiz": st.column_config.NumberColumn("Quiz", min_value=0, step=1),
+            "Ödevler": st.column_config.NumberColumn("Ödevler", min_value=0, step=1),
+            # Manuel Değiştirilebilir Toplam Sütunu
+            "Toplam (Saat)": st.column_config.NumberColumn("Toplam Yük (Manuel)", min_value=0, step=1),
+            # Asistan Seçim Sütunları
+            "Asistan 1": st.column_config.SelectboxColumn("Asistan 1", options=assistant_options, width="medium"),
+            "Asistan 2": st.column_config.SelectboxColumn("Asistan 2", options=assistant_options, width="medium"),
+            "Asistan 3": st.column_config.SelectboxColumn("Asistan 3", options=assistant_options, width="medium"),
         },
         hide_index=True,
         use_container_width=True,
@@ -255,9 +274,8 @@ if menu_selection == "Ders Yükleri":
         key="course_load_editor"
     )
 
-    # Değişiklikleri kaydet (Toplam sütununu hariç tutarak)
-    if not edited_loads.drop(columns=["Toplam (Saat)"]).equals(st.session_state.course_load_data):
-        st.session_state.course_load_data = edited_loads.drop(columns=["Toplam (Saat)"])
+    if not edited_loads.equals(st.session_state.course_load_data):
+        st.session_state.course_load_data = edited_loads
         st.rerun()
 
 else:
@@ -279,11 +297,10 @@ else:
         data_dept = []
         for course in current_dept_courses:
             for exam_type in DEFAULT_ROWS_TO_CREATE:
-                # "Ders Yükü" sütunu kaldırıldı
+                # ASİSTAN SÜTUNLARI YOK, YÜK YOK
                 data_dept.append({
                     "Aktif": False, "Ders Kodu": course, "Sınav Türü": exam_type,
-                    "Tarih": pd.to_datetime("2025-04-15"), "Saat": "17:40", "Süre (dk)": 120, "İhtiyaç (Kişi)": 4,
-                    "Asistan 1": "Yok", "Asistan 2": "Yok", "Asistan 3": "Yok"
+                    "Tarih": pd.to_datetime("2025-04-15"), "Saat": "17:40", "Süre (dk)": 120, "İhtiyaç (Kişi)": 4
                 })
         st.session_state.semester_data_dept[semester_choice] = pd.DataFrame(data_dept)
 
@@ -320,15 +337,12 @@ else:
             column_config={
                 "Aktif": st.column_config.CheckboxColumn("Seç", width="small"),
                 "Ders Kodu": st.column_config.TextColumn("Ders", disabled=True),
-                # "Ders Yükü" konfigürasyonu buradan kaldırıldı
                 "Sınav Türü": st.column_config.SelectboxColumn("Tür", options=ALL_EXAM_TYPES, required=True),
                 "Tarih": st.column_config.DateColumn("Tarih", format="YYYY-MM-DD", required=True),
                 "Saat": st.column_config.TextColumn("Saat", default="17:40", required=True),
                 "Süre (dk)": st.column_config.NumberColumn("Süre", min_value=15, max_value=300, step=15),
                 "İhtiyaç (Kişi)": st.column_config.NumberColumn("Kişi", min_value=1, max_value=20, step=1),
-                "Asistan 1": st.column_config.SelectboxColumn("Asistan 1", options=assistant_options, width="small"),
-                "Asistan 2": st.column_config.SelectboxColumn("Asistan 2", options=assistant_options, width="small"),
-                "Asistan 3": st.column_config.SelectboxColumn("Asistan 3", options=assistant_options, width="small"),
+                # Asistan sütunları kaldırıldı
             },
             hide_index=True, use_container_width=True, height=350, key=f"editor_dept_{semester_choice}"
         )
@@ -369,22 +383,40 @@ else:
                 st.warning("⚠️ Lütfen en az bir ders seçin.")
             else:
                 pool_data = [{"name": name, "load": 0.0} for name in st.session_state.assistants_db["name"].tolist()]
-                # Değişiklik: Artık 3. parametre olarak Course Load tablosunu gönderiyoruz
-                pool_with_loads = calculate_initial_loads(pool_data, edited_df_dept, st.session_state.course_load_data)
                 
+                # 1. İlk Yükleri Hesapla (Ders Yükleri Sayfasından)
+                pool_with_loads = calculate_initial_loads(pool_data, st.session_state.course_load_data)
+                
+                # 2. Sınavları ve Önceden Atanmış Asistanları Hazırla
                 exam_list = []
                 parse_error = False
+                
+                # Ders Kodu -> [Atanmış Asistanlar] Haritası
+                course_map = {}
+                if not st.session_state.course_load_data.empty:
+                    for _, row in st.session_state.course_load_data.iterrows():
+                        c_code = row["Ders Kodu"]
+                        assistants = []
+                        for col in ["Asistan 1", "Asistan 2", "Asistan 3"]:
+                            if col in row and row[col] and row[col] != "Yok":
+                                assistants.append(row[col])
+                        course_map[c_code] = assistants
                 
                 for df, is_service in [(active_dept, False), (active_service, True)]:
                     for index, row in df.iterrows():
                         try:
                             dt_obj = datetime.strptime(f"{row['Tarih'].strftime('%Y-%m-%d')} {row['Saat']}", "%Y-%m-%d %H:%M")
+                            
+                            # Bu dersin asistanlarını bul
+                            pre_assigned = course_map.get(row["Ders Kodu"], [])
+                            
                             exam_list.append({
-                                "code": row["Ders Kodu"], "name": row["Sınav Türü"],
-                                "datetime_obj": dt_obj, "duration": row["Süre (dk)"], "needed": row["İhtiyaç (Kişi)"],
-                                "assist_1": "Yok" if is_service else row["Asistan 1"],
-                                "assist_2": "Yok" if is_service else row["Asistan 2"],
-                                "assist_3": "Yok" if is_service else row["Asistan 3"]
+                                "code": row["Ders Kodu"], 
+                                "name": row["Sınav Türü"],
+                                "datetime_obj": dt_obj, 
+                                "duration": row["Süre (dk)"], 
+                                "needed": row["İhtiyaç (Kişi)"],
+                                "pre_assigned_assistants": pre_assigned # Yeni mantık
                             })
                         except: parse_error = True; break
                 
